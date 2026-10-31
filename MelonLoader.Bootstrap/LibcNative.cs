@@ -36,6 +36,10 @@ internal partial class LibcNative
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial int Setenv(string name, string value,[MarshalAs(UnmanagedType.Bool)] bool overwrite);
 
+    [LibraryImport("libc", EntryPoint = "unsetenv", StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    public static partial int Unsetenv(string name);
+
     [LibraryImport("libc", EntryPoint = "dup2")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial int Dup2(int oldFd, int newFd);

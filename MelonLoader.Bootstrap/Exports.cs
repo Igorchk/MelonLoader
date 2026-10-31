@@ -80,8 +80,12 @@ internal static class Exports
     // since hooking on libc's "pre main" is inherently dangerous so the less time we have this, the better
     private static void RemoveLibraryPreloadEnv()
     {
-        string[] ldPreloads = Environment.GetEnvironmentVariable(LdPreloadEnvName)!.Split(":");
-        string newLdPreload = string.Join(':', ldPreloads.Where(x => x != $"{CurrentAssemblyName}.{LibExtension}"));
+        // Match on the file name so absolute paths (which melonloader-launch.sh uses) are stripped too,
+        // otherwise child processes such as Cpp2IL inherit the preload and dyld kills them on an arch mismatch
+        string ourLibName = $"{CurrentAssemblyName}.{LibExtension}";
+        string[] ldPreloads = Environment.GetEnvironmentVariable(LdPreloadEnvName)?.Split(":") ?? [];
+        string newLdPreload = string.Join(':', ldPreloads
+            .Where(x => x.Length != 0 && Path.GetFileName(x) != ourLibName));
         string[]? ldLibraryPaths = Environment.GetEnvironmentVariable(LdPathEnvName)?.Split(":");
 
         // It's possible to hook without a library path set so we only remove ourselves if the variable had a value
@@ -96,11 +100,23 @@ internal static class Exports
 
             string newLibraryPath = string.Join(':', ldLibraryPaths
                 .Where(x => x.Length != 0 && expectedLibFullPath != Path.TrimEndingDirectorySeparator(Path.GetFullPath(x))));
-            LibcNative.Setenv(LdPathEnvName, newLibraryPath, true);
-            Environment.SetEnvironmentVariable(LdPathEnvName, newLibraryPath);
+            SetOrUnsetEnv(LdPathEnvName, newLibraryPath);
         }
-        LibcNative.Setenv(LdPreloadEnvName, newLdPreload, true);
-        Environment.SetEnvironmentVariable(LdPreloadEnvName, newLdPreload);
+        SetOrUnsetEnv(LdPreloadEnvName, newLdPreload);
+    }
+
+    // The loader only reads these variables at process start, so changing them here only affects child processes
+    private static void SetOrUnsetEnv(string name, string value)
+    {
+        if (value.Length == 0)
+        {
+            LibcNative.Unsetenv(name);
+            Environment.SetEnvironmentVariable(name, null);
+            return;
+        }
+
+        LibcNative.Setenv(name, value, true);
+        Environment.SetEnvironmentVariable(name, value);
     }
 #endif
 
