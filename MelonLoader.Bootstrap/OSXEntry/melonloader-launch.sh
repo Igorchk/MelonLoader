@@ -58,19 +58,25 @@ open_melonloader_terminal() {
         return
     }
 
-    local quoted_log_path quoted_title
+    local quoted_log_path quoted_patch_log quoted_title
     quoted_log_path="$(shell_quote "$log_path")"
+    quoted_patch_log="$(shell_quote "$SCRIPT_DIR/MelonLoader/AutoPatch.log")"
     quoted_title="$(shell_quote "$title")"
 
     cat > "$watcher_script" <<EOF
 #!/bin/bash
 LOG_PATH=$quoted_log_path
+PATCH_LOG=$quoted_patch_log
 TITLE=$quoted_title
 GAME_PID=$$
 
 printf '\\033]0;%s\\007' "\$TITLE"
 clear
 echo "\$TITLE"
+if [ -s "\$PATCH_LOG" ]; then
+    cat "\$PATCH_LOG"
+    echo
+fi
 echo "Waiting for MelonLoader log..."
 echo
 
@@ -127,6 +133,28 @@ if [ -d "${1:-}" ] && [ "${1%.app}" != "$1" ]; then
         shift
         set -- "$BINARY" "$@"
     fi
+fi
+
+# Convert x64-only mods to AnyCPU before the game loads them: CoreCLR on arm64
+# refuses x64-targeted assemblies, and BTD6 Mod Helper's mod browser installs
+# the authors' x64 builds. This finishes before the game starts, and runs
+# before DYLD_INSERT_LIBRARIES is set so the patcher's own .NET process isn't
+# injected. Set MELONLOADER_PATCH_SCRIPT to use another script, or to an empty
+# string to skip patching.
+PATCH_SCRIPT="${MELONLOADER_PATCH_SCRIPT-$HOME/Documents/Coding/BTD6-Mods/MelonLoader-AppleSilicon/patch_mac_mods.sh}"
+PATCH_LOG="$SCRIPT_DIR/MelonLoader/AutoPatch.log"
+rm -f "$PATCH_LOG"
+if [ -n "$PATCH_SCRIPT" ] && [ -x "$PATCH_SCRIPT" ]; then
+    {
+        echo "Auto-patching x64 mods to AnyCPU..."
+        # A failed patch is reported, but doesn't stop the game from launching
+        BTD6_DIR="$SCRIPT_DIR" "$PATCH_SCRIPT" ||
+            echo "melonloader-launch: the mod patcher failed (exit $?); launching anyway"
+    } 2>&1 | tee "$PATCH_LOG" || true
+elif [ -n "$PATCH_SCRIPT" ]; then
+    # Also reached when macOS privacy settings stop Steam from reading ~/Documents
+    echo "melonloader-launch: no mod patcher at $PATCH_SCRIPT (missing, or not readable from here); mods were not auto-patched" |
+        tee "$PATCH_LOG" || true
 fi
 
 # Both the dylib and the managed MelonLoader/ folder live in SCRIPT_DIR
